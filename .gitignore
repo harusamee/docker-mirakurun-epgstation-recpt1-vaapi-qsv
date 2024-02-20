@@ -1,5 +1,6 @@
 epgstation/config/*
 !epgstation/config/*.js
+!epgstation/config/*.py
 !epgstation/config/*.template
 epgstation/data/*
 epgstation/logs/*
@@ -13,3 +14,11 @@ mirakurun/data/*
 !.gitkeep
 
 .env
+
+rec/*.mp4
+rec/*.ts
+rec/*.npz
+
+drec/*.mp4
+drec/*.ts
+drec/*.npz
