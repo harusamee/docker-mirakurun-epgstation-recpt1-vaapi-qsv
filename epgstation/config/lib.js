@@ -1,8 +1,8 @@
-const spawn = require('child_process').spawn;
-const execFile = require('child_process').execFile;
+const { spawn, spawnSync, execFile } = require('child_process');
+const fs = require("fs");
 const ffmpeg = process.env.FFMPEG;
 const ffprobe = process.env.FFPROBE;
-const input = process.env.INPUT;
+let input = process.env.INPUT;
 const output = process.env.OUTPUT;
 const isDualMono = parseInt(process.env.AUDIOCOMPONENTTYPE, 10) == 2;
 const analyzedurationSize = '10M'; // Mirakurun の設定に応じて変更すること
@@ -111,6 +111,27 @@ const generateArgs = (copy, videoOptions) => {
     console.error("ffmpeg args:", args.join(" "));
 
     return args;
+}
+
+const runTsdivider = async () => {
+    const { duration } = await getInfo(input);
+
+    const fivePercentOfDuration = parseInt(duration * 0.05);
+
+    tsdivider = "/usr/local/bin/tsdivider";
+    const divider_output = input + ".divided.ts";
+    args = ["-i", input, "-o", divider_output, "--trim_threshold", String(fivePercentOfDuration)];
+    console.log(JSON.stringify({ type: 'progress', percent: 0, log: "Running tsdivider" }));
+    spawnSync(tsdivider, args);
+    fs.renameSync(divider_output, input);
+}
+
+const runClassification = () => {
+    python = "/usr/sbin/python";
+    script = "/app/config/classify.py";
+    args = [script, "-i", input, "-o", "temp.mp4"];
+    console.log(JSON.stringify({ type: 'progress', percent: 0, log: "Running classify.py" }));
+    spawnSync(python, args);
 }
 
 /**
@@ -229,4 +250,6 @@ const encode = async (copyTargetCodec, videoOptions) => {
 
 module.exports = {
     encode,
+    runTsdivider,
+    runClassification
 };

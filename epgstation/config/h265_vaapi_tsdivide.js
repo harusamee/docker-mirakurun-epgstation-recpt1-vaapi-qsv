@@ -1,4 +1,4 @@
-const { encode } = require('./lib');
+const { encode, runTsdivider } = require('./lib');
 
 const videoOptions = [
     // video 設定
@@ -15,5 +15,6 @@ const videoOptions = [
 ];
 
 (async () => {
+    await runTsdivider();
     await encode("hevc", videoOptions);
 })();

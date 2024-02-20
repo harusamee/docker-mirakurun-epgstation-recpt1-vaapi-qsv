@@ -21,38 +21,38 @@ epgUpdateIntervalTime: 10
 conflictPriority: 1
 recPriority: 2
 
-recordedFormat: '%YEAR%年%MONTH%月%DAY%日%HOUR%時%MIN%分%SEC%秒-%TITLE%'
+recordedFormat: '%YEAR%%MONTH%%DAY%-%HOUR%%MIN%%SEC%-%TITLE%'
 recordedFileExtension: .ts
 recorded:
     - name: recorded
       path: '/rec'
-    - name: gdrive
-      path: '/grec'
+    - name: digest
+      path: '/drec'
 
 thumbnail: '%ROOT%/thumbnail'
 thumbnailSize: 480x270
-thumbnailPosition: 5
+thumbnailPosition: 10
 
 ffmpeg: /usr/bin/ffmpeg
 ffprobe: /usr/bin/ffprobe
 
 isEnabledDropCheck: true
 apiServers:
-    - http://dtv.local:8888
+    - http://beelink.local:8888
 
 encodeProcessNum: 4
 concurrentEncodeNum: 1
 encode:
-    - name: H.264
-      cmd: '%NODE% %ROOT%/config/h264_vaapi.js'
-      suffix: .mp4
-      rate: 4.0
     - name: H.265
       cmd: '%NODE% %ROOT%/config/h265_vaapi.js'
       suffix: .mp4
       rate: 4.0
-    - name: H.264 (software)
-      cmd: '%NODE% %ROOT%/config/h264_sw.js'
+    - name: H.265 (tsdivider)
+      cmd: '%NODE% %ROOT%/config/h265_vaapi_tsdivide.js'
+      suffix: .mp4
+      rate: 4.0
+    - name: H.265 (tsdivider, classification)
+      cmd: '%NODE% %ROOT%/config/h265_vaapi_tsdivide_yolo.js'
       suffix: .mp4
       rate: 4.0
 
