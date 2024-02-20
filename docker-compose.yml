@@ -42,8 +42,8 @@ services:
       - ./epgstation/data:/app/data
       - ./epgstation/thumbnail:/app/thumbnail
       - ./epgstation/logs:/app/logs
-      - /rec:/rec
-      - /grec:/grec
+      - ./rec:/rec
+      - ./grec:/grec
       - /dev/dri:/dev/dri
     devices:
       - /dev/dri/card0:/dev/dri/card0
