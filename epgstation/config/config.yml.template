@@ -55,7 +55,10 @@ encode:
       cmd: '%NODE% %ROOT%/config/h265_vaapi_tsdivide_yolo.js'
       suffix: .mp4
       rate: 4.0
-
+    - name: H.265 (crossfade)
+      cmd: '%NODE% %ROOT%/config/h265_vaapi_tsdivide_yolo_crossfade.js'
+      suffix: _crossfade.mp4
+      rate: 6.0
 urlscheme:
     m2ts:
         ios: vlc-x-callback://x-callback-url/stream?url=PROTOCOL%3A%2F%2FADDRESS

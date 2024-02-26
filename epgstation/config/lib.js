@@ -1,8 +1,9 @@
 const { spawn, spawnSync, execFile } = require('child_process');
 const fs = require("fs");
+const path = require('path');
 const ffmpeg = process.env.FFMPEG;
 const ffprobe = process.env.FFPROBE;
-let input = process.env.INPUT;
+const input = process.env.INPUT;
 const output = process.env.OUTPUT;
 const isDualMono = parseInt(process.env.AUDIOCOMPONENTTYPE, 10) == 2;
 const analyzedurationSize = '10M'; // Mirakurun の設定に応じて変更すること
@@ -114,142 +115,188 @@ const generateArgs = (copy, videoOptions) => {
 }
 
 const runTsdivider = async () => {
-    const { duration } = await getInfo(input);
+    const { duration, codecs } = await getInfo(input);
 
-    const fivePercentOfDuration = parseInt(duration * 0.05);
+    // run tsvidider only if input contains mpeg2video
+    if(codecs.includes("mpeg2video")) {
+        const fivePercentOfDuration = parseInt(duration * 0.05);
 
-    tsdivider = "/usr/local/bin/tsdivider";
-    const divider_output = input + ".divided.ts";
-    args = ["-i", input, "-o", divider_output, "--trim_threshold", String(fivePercentOfDuration)];
-    console.log(JSON.stringify({ type: 'progress', percent: 0, log: "Running tsdivider" }));
-    spawnSync(tsdivider, args);
-    fs.renameSync(divider_output, input);
+        const tsdivider = "/usr/local/bin/tsdivider";
+        const divider_output = input + ".divided.ts";
+        const args = ["-i", input, "-o", divider_output, "--trim_threshold", String(fivePercentOfDuration)];
+        console.log(JSON.stringify({ type: 'progress', percent: 0, log: `Running tsdivider ${args.join(' ')}` }));
+        spawnSync(tsdivider, args);
+        fs.renameSync(divider_output, input);                    
+    }
 }
 
 const runClassification = () => {
-    python = "/usr/sbin/python";
-    script = "/app/config/classify.py";
-    args = [script, "-i", input, "-o", "temp.mp4"];
-    console.log(JSON.stringify({ type: 'progress', percent: 0, log: "Running classify.py" }));
+    const python = "/usr/sbin/python";
+    const script = "/app/config/classify.py";
+    const output_path = path.parse(output);
+    const output_json = `${output_path.dir}${path.sep}${output_path.name}.json`;
+
+    const args = [script, "-i", input, "-o", output_json];
+    console.log(JSON.stringify({ type: 'progress', percent: 0, log: `Running classify.py ${args.join(' ')}` }));
     spawnSync(python, args);
+}
+
+const runCrossfade = async () => {
+    const python = "/usr/sbin/python";
+    const script = "/app/config/crossfade.py";
+
+    const crossfade_input = output;
+    const output_path = path.parse(output);
+    const crossfade_input_json = `${output_path.dir}${path.sep}${output_path.name}.json`;
+    const crossfade_output = input + ".crossfade.mp4"
+    const args = [script, "-i", crossfade_input, "-j", crossfade_input_json, "-o", crossfade_output,
+        "--remove-temp-dir", "--execute-commands"];
+    console.log(JSON.stringify({ type: 'progress', percent: 0, log: `Running ${python} ${args.join(" ")}` }));
+    const ph = spawnSync(python, args, {
+        stdio: "pipe",
+        encoding: "utf-8"
+    });
+
+    process.on('SIGINT', () => {
+        child.ph('SIGINT');
+        process.exit()
+    });
+
+    console.error(ph.output);
+
+    fs.renameSync(crossfade_output, crossfade_input);
 }
 
 /**
  * @param {string[]} videoOptions 
  */
-const encode = async (copyTargetCodec, videoOptions) => {
-    const { duration, codecs } = await getInfo(input);
+const encode = (copyTargetCodec, videoOptions) => {
+    return new Promise(async (resolve, reject) => {
+        const { duration, codecs } = await getInfo(input);
 
-    // MP4コンテナに入っていたらエンコードしたものと見なしてコピーに切り替える
-    const args = generateArgs(codecs.includes(copyTargetCodec), videoOptions);
-
-    const child = spawn(ffmpeg, args);
-
-    /**
-     * エンコード進捗表示用に標準出力に進捗情報を吐き出す
-     * 出力する JSON
-     * {"type":"progress","percent": 0.8, "log": "view log" }
-     */
-    child.stderr.on('data', data => {
-        console.error(String(data));
-        let strbyline = String(data).split('\n');
-        for (let i = 0; i < strbyline.length; i++) {
-            let str = strbyline[i];
-            if (str.startsWith('frame')) {
-                // 想定log
-                // frame= 5159 fps= 11 q=29.0 size=  122624kB time=00:02:51.84 bitrate=5845.8kbits/s dup=19 drop=0 speed=0.372x
-                const progress = {};
-                const ffmpeg_reg = /frame=\s*(?<frame>\d+)\sfps=\s*(?<fps>\d+(?:\.\d+)?)\sq=\s*(?<q>[+-]?\d+(?:\.\d+)?)\sL?size=\s*(?<size>\d+(?:\.\d+)?)kB\stime=\s*(?<time>\d+[:\.\d+]*)\sbitrate=\s*(?<bitrate>\d+(?:\.\d+)?)kbits\/s(?:\sdup=\s*(?<dup>\d+))?(?:\sdrop=\s*(?<drop>\d+))?\sspeed=\s*(?<speed>\d+(?:\.\d+)?)x/;
-                let ffmatch = str.match(ffmpeg_reg);
-                /**
-                 * match結果
-                 * [
-                 *   'frame= 5159 fps= 11 q=29.0 size=  122624kB time=00:02:51.84 bitrate=5845.8kbits/s dup=19 drop=0 speed=0.372x',
-                 *   '5159',
-                 *   '11',
-                 *   '29.0',
-                 *   '122624',
-                 *   '00:02:51.84',
-                 *   '5845.8',
-                 *   '19',
-                 *   '0',
-                 *   '0.372',
-                 *   index: 0,
-                 *   input: 'frame= 5159 fps= 11 q=29.0 size=  122624kB time=00:02:51.84 bitrate=5845.8kbits/s dup=19 drop=0 speed=0.372x    \r',
-                 *   groups: [Object: null prototype] {
-                 *     frame: '5159',
-                 *     fps: '11',
-                 *     q: '29.0',
-                 *     size: '122624',
-                 *     time: '00:02:51.84',
-                 *     bitrate: '5845.8',
-                 *     dup: '19',
-                 *     drop: '0',
-                 *     speed: '0.372'
-                 *   }
-                 * ]
-                 */
-
-                // console.error(ffmatch);
-                if (ffmatch === null || ffmatch.groups === undefined) continue;
-
-                progress['frame'] = parseInt(ffmatch.groups.frame);
-                progress['fps'] = parseFloat(ffmatch.groups.fps);
-                progress['q'] = parseFloat(ffmatch.groups.q);
-                progress['size'] = (parseInt(ffmatch.groups.size) / 1024).toFixed(1) + "MB";
-                progress['time'] = ffmatch.groups.time;
-                progress['bitrate'] = parseFloat(ffmatch.groups.bitrate) + "kbps";
-                progress['dup'] = ffmatch.groups.dup == null ? 0 : parseInt(ffmatch.groups.dup);
-                progress['drop'] = ffmatch.groups.drop == null ? 0 : parseInt(ffmatch.groups.drop);
-                progress['speed'] = parseFloat(ffmatch.groups.speed);
-
-                let current = 0;
-                const times = progress.time.split(':');
-                for (let i = 0; i < times.length; i++) {
-                    if (i == 0) {
-                        current += parseFloat(times[i]) * 3600;
-                    } else if (i == 1) {
-                        current += parseFloat(times[i]) * 60;
-                    } else if (i == 2) {
-                        current += parseFloat(times[i]);
+        // MP4コンテナに入っていたらエンコードしたものと見なしてコピーに切り替える
+        const args = generateArgs(codecs.includes(copyTargetCodec), videoOptions);
+    
+        console.log(ffmpeg, args)
+        const child = spawn(ffmpeg, args);
+    
+        child.stdout.on('data', data => {
+            console.error(String(data));
+        });
+    
+        /**
+         * エンコード進捗表示用に標準出力に進捗情報を吐き出す
+         * 出力する JSON
+         * {"type":"progress","percent": 0.8, "log": "view log" }
+         */
+        child.stderr.on('data', data => {
+            console.error(String(data));
+            let strbyline = String(data).split('\n');
+            for (let i = 0; i < strbyline.length; i++) {
+                let str = strbyline[i];
+                if (str.startsWith('frame')) {
+                    // 想定log
+                    // frame= 5159 fps= 11 q=29.0 size=  122624kB time=00:02:51.84 bitrate=5845.8kbits/s dup=19 drop=0 speed=0.372x
+                    const progress = {};
+                    const ffmpeg_reg = /frame=\s*(?<frame>\d+)\sfps=\s*(?<fps>\d+(?:\.\d+)?)\sq=\s*(?<q>[+-]?\d+(?:\.\d+)?)\sL?size=\s*(?<size>\d+(?:\.\d+)?)kB\stime=\s*(?<time>\d+[:\.\d+]*)\sbitrate=\s*(?<bitrate>\d+(?:\.\d+)?)kbits\/s(?:\sdup=\s*(?<dup>\d+))?(?:\sdrop=\s*(?<drop>\d+))?\sspeed=\s*(?<speed>\d+(?:\.\d+)?)x/;
+                    let ffmatch = str.match(ffmpeg_reg);
+                    /**
+                     * match結果
+                     * [
+                     *   'frame= 5159 fps= 11 q=29.0 size=  122624kB time=00:02:51.84 bitrate=5845.8kbits/s dup=19 drop=0 speed=0.372x',
+                     *   '5159',
+                     *   '11',
+                     *   '29.0',
+                     *   '122624',
+                     *   '00:02:51.84',
+                     *   '5845.8',
+                     *   '19',
+                     *   '0',
+                     *   '0.372',
+                     *   index: 0,
+                     *   input: 'frame= 5159 fps= 11 q=29.0 size=  122624kB time=00:02:51.84 bitrate=5845.8kbits/s dup=19 drop=0 speed=0.372x    \r',
+                     *   groups: [Object: null prototype] {
+                     *     frame: '5159',
+                     *     fps: '11',
+                     *     q: '29.0',
+                     *     size: '122624',
+                     *     time: '00:02:51.84',
+                     *     bitrate: '5845.8',
+                     *     dup: '19',
+                     *     drop: '0',
+                     *     speed: '0.372'
+                     *   }
+                     * ]
+                     */
+    
+                    // console.error(ffmatch);
+                    if (ffmatch === null || ffmatch.groups === undefined) continue;
+    
+                    progress['frame'] = parseInt(ffmatch.groups.frame);
+                    progress['fps'] = parseFloat(ffmatch.groups.fps);
+                    progress['q'] = parseFloat(ffmatch.groups.q);
+                    progress['size'] = (parseInt(ffmatch.groups.size) / 1024).toFixed(1) + "MB";
+                    progress['time'] = ffmatch.groups.time;
+                    progress['bitrate'] = parseFloat(ffmatch.groups.bitrate) + "kbps";
+                    progress['dup'] = ffmatch.groups.dup == null ? 0 : parseInt(ffmatch.groups.dup);
+                    progress['drop'] = ffmatch.groups.drop == null ? 0 : parseInt(ffmatch.groups.drop);
+                    progress['speed'] = parseFloat(ffmatch.groups.speed);
+    
+                    let current = 0;
+                    const times = progress.time.split(':');
+                    for (let i = 0; i < times.length; i++) {
+                        if (i == 0) {
+                            current += parseFloat(times[i]) * 3600;
+                        } else if (i == 1) {
+                            current += parseFloat(times[i]) * 60;
+                        } else if (i == 2) {
+                            current += parseFloat(times[i]);
+                        }
                     }
+    
+                    // 進捗率 1.0 で 100%
+                    const percent = current / duration;
+                    const log =
+                        'frame= ' +
+                        progress.frame +
+                        ' fps=' +
+                        progress.fps +
+                        ' time=' +
+                        progress.time +
+                        ' bitrate=' +
+                        progress.bitrate +
+                        ' size=' +
+                        progress.size +
+                        ' drop=' +
+                        progress.drop +
+                        ' speed=' +
+                        progress.speed;
+    
+                    console.log(JSON.stringify({ type: 'progress', percent: percent, log: log }));
                 }
-
-                // 進捗率 1.0 で 100%
-                const percent = current / duration;
-                const log =
-                    'frame= ' +
-                    progress.frame +
-                    ' fps=' +
-                    progress.fps +
-                    ' time=' +
-                    progress.time +
-                    ' bitrate=' +
-                    progress.bitrate +
-                    ' size=' +
-                    progress.size +
-                    ' drop=' +
-                    progress.drop +
-                    ' speed=' +
-                    progress.speed;
-
-                console.log(JSON.stringify({ type: 'progress', percent: percent, log: log }));
             }
-        }
-    });
+        });
+    
+        child.on('error', err => {
+            console.error(err);
+            reject(err);
+        });
+    
+        process.on('SIGINT', () => {
+            child.kill('SIGINT');
+            process.exit()
+        });
 
-    child.on('error', err => {
-        console.error(err);
-        throw new Error(err);
-    });
-
-    process.on('SIGINT', () => {
-        child.kill('SIGINT');
+        child.on('exit', (code) => {
+            resolve();
+        });
     });
 };
 
 module.exports = {
     encode,
     runTsdivider,
-    runClassification
+    runClassification,
+    runCrossfade,
+    getInfo
 };

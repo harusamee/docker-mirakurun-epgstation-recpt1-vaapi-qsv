@@ -43,11 +43,11 @@ services:
       - ./epgstation/thumbnail:/app/thumbnail
       - ./epgstation/logs:/app/logs
       - ./rec:/rec
-      - ./grec:/grec
+      - ./drec:/drec
       - /dev/dri:/dev/dri
-    devices:
-      - /dev/dri/card0:/dev/dri/card0
-    # privileged: true
+    #devices:
+    #  - /dev/dri/card0:/dev/dri/card0
+    privileged: true
     depends_on:
       - mirakurun
       - db

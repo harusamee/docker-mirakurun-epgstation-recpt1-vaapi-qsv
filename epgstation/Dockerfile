@@ -8,9 +8,9 @@ RUN cmake --install tsdivider/build
 
 FROM archlinux:latest
 
-RUN echo 'Server = http://ftp.tsukuba.wide.ad.jp/Linux/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+RUN echo 'Server = http://mirror.nishi.network/archlinux/$repo/os/$arch' > /etc/pacman.d/mirrorlist
 RUN pacman -Syuv --noconfirm
-RUN pacman -S --noconfirm nodejs-lts-hydrogen npm ffmpeg linux-firmware intel-media-driver onevpl-intel-gpu python-pip
+RUN pacman -S --noconfirm nodejs-lts-hydrogen npm ffmpeg linux-firmware intel-media-driver onevpl-intel-gpu python-pip ttf-dejavu
 RUN pip install --break-system-packages numpy opencv-python-headless ultralytics onnx openvino-dev
 
 COPY --from=upstream /app /app/

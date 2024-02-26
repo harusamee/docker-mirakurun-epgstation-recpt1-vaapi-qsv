@@ -17,8 +17,8 @@ mirakurun/data/*
 
 rec/*.mp4
 rec/*.ts
-rec/*.npz
+rec/*.json
 
 drec/*.mp4
 drec/*.ts
-drec/*.npz
+drec/*.json

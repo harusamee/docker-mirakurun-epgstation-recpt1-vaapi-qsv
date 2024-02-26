@@ -1,0 +1,22 @@
+const { encode, runTsdivider, runClassification, runCrossfade } = require('./lib');
+
+const videoOptions = [
+    // video 設定
+    '-vf', 'deinterlace_vaapi,scale_vaapi=w=-2:h=1080',
+    '-c:v', 'hevc_vaapi',
+    '-vsync', '1',
+
+    // ChatGPT-3.5に聞いたらこのパラメータが最適だってよ
+    '-global_quality', '26',
+    '-q:v', '26',
+    '-qp', '0',
+    '-b:v', '0',
+    '-maxrate:v', '0',
+];
+
+(async () => {
+    await runTsdivider();
+    runClassification();
+    await encode("hevc", videoOptions);
+    await runCrossfade();
+})();
