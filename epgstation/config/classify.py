@@ -2,11 +2,9 @@ import os
 import subprocess
 import argparse
 from multiprocessing.pool import ThreadPool
+import json
 
 import numpy as np
-import json
-import cv2
-from ultralytics import YOLO
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -42,29 +40,38 @@ def get_timestamp(input_video):
     return []
 
 def detect_objects(input_video):
+    from ultralytics import YOLO
+
     model = YOLO("yolov8n.pt", task="detect")
     if not os.path.exists("yolov8n_openvino_model"):
         model.export(format="openvino")
     ov_model = YOLO('yolov8n_openvino_model/', task="detect")
 
-    command = ["ffmpeg",
-            "-skip_frame", "nokey",
+    # yolov8n uses 640x640 input
+    height = 640
+    width = 640
+    frame_bytes = height * width * 3
+
+    vf = "select='eq(pict_type\,PICT_TYPE_I)',yadif=0:-1:1,scale=iw*sar:ih,setsar=1"
+    if input_video.endswith('ts'):
+        decoder = ["-hwaccel", "qsv", "-c:v", "mpeg2_qsv"]
+        vf = f"scale_qsv=w={height}:h={width},hwdownload,format=nv12," + vf
+    else:
+        decoder = []
+        vf = f"scale=w={height}:h={width}:force_original_aspect_ratio=disable," + vf
+
+    command = ["ffmpeg"] + decoder + [
             "-i", input_video,
+            "-s", f"{width}x{height}",
             "-an",
+            "-vf", vf,
             "-fps_mode", "vfr",
-            "-vf", "yadif=0:-1:1,scale=iw*sar:ih,setsar=1",
             "-pix_fmt", "bgr24",
             "-f", "rawvideo",
             "pipe:1",
             "-loglevel", "quiet",
             "-nostats",
             "-hide_banner"]
-
-    cv2_video = cv2.VideoCapture(input_video)
-    sar = cv2_video.get(cv2.CAP_PROP_SAR_NUM) / cv2_video.get(cv2.CAP_PROP_SAR_DEN)
-    height = int(cv2_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    width = int(cv2_video.get(cv2.CAP_PROP_FRAME_WIDTH) * sar)
-    frame_bytes = height * width * 3
 
     ph = subprocess.Popen(command, stdout=subprocess.PIPE)
     count = 0
@@ -101,7 +108,7 @@ def analyze_video(input_video, output_json, force=False):
         pool.terminate()
 
         result = {"detected": detected, "timestamp": timestamp}
-    
+
         with open(output_json, "w") as fp:
             json.dump(result, fp)
     else:
@@ -110,6 +117,10 @@ def analyze_video(input_video, output_json, force=False):
             json_file = json.load(fp)
         detected = json_file["detected"]
         timestamp = json_file["timestamp"]
+
+    diff = abs(len(detected) - len(timestamp))
+    if diff > 2:
+        raise ValueError(f"Number of analyzed frames and timestamps did not match {len(detected)} {len(timestamp)}")
 
     return detected, timestamp
 
